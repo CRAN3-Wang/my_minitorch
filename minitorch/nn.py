@@ -3,6 +3,7 @@ from typing import Tuple
 from . import operators
 from .autodiff import Context
 from .fast_ops import FastOps
+from .cuda_ops import CudaOps
 from .tensor import Tensor
 from .tensor_functions import Function, rand, tensor
 import numpy as np
@@ -51,7 +52,8 @@ def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
     return out.view(batch, channel, new_height, new_width)
 
 
-max_reduce = FastOps.reduce(operators.max, -1e9)
+# max_reduce = FastOps.reduce(operators.max, -1e9)
+max_reduce = CudaOps.reduce(operators.max, -1e9)
 
 
 def argmax(input: Tensor, dim: int) -> Tensor:

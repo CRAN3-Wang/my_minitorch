@@ -3,6 +3,7 @@ from .autodiff import *  # noqa: F401,F403
 from .cuda_ops import *  # noqa: F401,F403
 from .datasets import *  # noqa: F401,F403
 from .fast_conv import *  # noqa: F401,F403
+from .cuda_conv import *  # noqa: F401,F403
 from .fast_ops import *  # noqa: F401,F403
 from .module import *  # noqa: F401,F403
 from .nn import *  # noqa: F401,F403

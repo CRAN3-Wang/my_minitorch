@@ -261,6 +261,19 @@ class Tensor:
     ) -> Tensor:
         "Create a new tensor from data"
         return Tensor(TensorData(storage, shape, strides), backend=backend)
+    
+    def flip(self, dims: Tuple[int]):
+        new_tensor = self.contiguous()
+        storage = new_tensor._tensor._storage.copy_to_host()
+        shape = new_tensor._tensor._shape
+        strides = new_tensor._tensor._strides
+        storage = storage.reshape(tuple(shape))
+        
+        storage = np.ascontiguousarray(np.flip(storage, axis=dims)).ravel()
+
+        new_data = TensorData(storage, tuple(shape), tuple(strides))
+        
+        return self._new(new_data)
 
     def expand(self, other: Tensor) -> Tensor:
         """

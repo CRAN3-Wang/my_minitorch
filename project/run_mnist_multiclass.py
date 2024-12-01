@@ -1,11 +1,14 @@
 from mnist import MNIST
 
 import minitorch
+import warnings
+warnings.filterwarnings('ignore')
 
 mndata = MNIST("project/data/")
 images, labels = mndata.load_training()
 
-BACKEND = minitorch.TensorBackend(minitorch.FastOps)
+# BACKEND = minitorch.TensorBackend(minitorch.FastOps)
+BACKEND = minitorch.TensorBackend(minitorch.CudaOps)
 BATCH = 16
 
 # Number of classes (10 digits)
@@ -41,7 +44,7 @@ class Conv2d(minitorch.Module):
         self.bias = RParam(out_channels, 1, 1)
 
     def forward(self, input):
-        return minitorch.conv2d(input, self.weights.value) + self.bias.value
+        return minitorch.conv2d_cuda(input, self.weights.value) + self.bias.value
 
 
 class Network(minitorch.Module):
@@ -63,8 +66,7 @@ class Network(minitorch.Module):
         super().__init__()
 
         # For vis
-        self.mid = None
-        self.out = None
+        self.res = None
         self.dropout = 0.25
 
         self.conv1 = Conv2d(1, 4, 3, 3)
@@ -73,14 +75,15 @@ class Network(minitorch.Module):
         self.linear2 = Linear(64, 10)
 
     def forward(self, x):
-        self.mid = self.conv1.forward(x).relu()
-        self.out = self.conv2.forward(self.mid).relu()
-        linear = self.linear1.forward(
-            minitorch.avgpool2d(self.out, (4, 4)).view(BATCH, 392)
+        self.res = self.conv1.forward(x).relu()
+        self.res = self.conv2.forward(self.res).relu()
+        self.res = self.linear1.forward(
+            minitorch.avgpool2d(self.res, (4, 4)).view(BATCH, 392)
         ).relu()
         if self.training:
-            linear = minitorch.dropout(linear, self.dropout)
-        return minitorch.logsoftmax(self.linear2(linear), 1)
+            self.res = minitorch.dropout(self.res, self.dropout)
+        self.res = minitorch.logsoftmax(self.linear2.forward(self.res), 1)
+        return self.res
         
 
 
@@ -103,6 +106,7 @@ def default_log_fn(epoch, total_loss, correct, total, losses, model):
 class ImageTrain:
     def __init__(self):
         self.model = Network()
+        # self.backend = minitorch.TensorBackend(minitorch.CudaOps)
 
     def run_one(self, x):
         return self.model.forward(minitorch.tensor([x], backend=BACKEND))

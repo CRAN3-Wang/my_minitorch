@@ -76,7 +76,7 @@ class CudaOps(TensorOps):
             out_a = a.zeros(tuple(out_shape))
 
             threadsperblock = 1024
-            blockspergrid = out_a.size
+            blockspergrid = -(-out_a.size // threadsperblock)
             f[blockspergrid, threadsperblock](  # type: ignore
                 *out_a.tuple(), out_a.size, *a.tuple(), dim, start
             )
