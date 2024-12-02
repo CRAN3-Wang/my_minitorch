@@ -2,18 +2,13 @@ from typing import Tuple
 
 import numpy as np
 from numba import cuda
-import numba as nb
 
 from .tensor import Tensor
 from .tensor_data import (
-    MAX_DIMS,
-    Index,
     Shape,
+    Storage,
     Strides,
     TensorData,
-    broadcast_index,
-    index_to_position,
-    to_index,
 )
 from .tensor_functions import Function
 from .autodiff import (
@@ -23,26 +18,28 @@ from .cuda_ops import tensor_matrix_multiply
 
 @cuda.jit
 def im2col_cuda_kernel(
-    padded_input, 
-    out, 
-    b, c,
-    kh, kw,
-    h_out, w_out,
-    stride
+    padded_input: Storage, 
+    out: Storage, 
+    b: int, c: int,
+    kh: int, kw: int,
+    h_out: int, w_out: int,
+    stride: int
     ):
     """
-    CUDA kernel for im2col operation
-    
-    Parameters:
-    - input_storage: Original input tensor storage
-    - padded_input: Padded input tensor 
-    - out: Output array to store flattened patches
-    - b, c, h, w: Input tensor dimensions
-    - kh, kw: Kernel height and width
-    - h_out, w_out: Output height and width
-    - stride: Convolution stride
-    - padding: Padding size
+    The cuda kernele of im2col func
+
+    Args:
+        padded_input (Storage): padded_input
+        out (Storage): out storage
+        b (int): batch size
+        c (int): channels
+        kh (int): kernel height
+        kw (int): kernel width
+        h_out (int): output height
+        w_out (int): output width
+        stride (Strides): stride of conv2d
     """    
+    
     # Thread and block indexing
     batch_idx = cuda.blockIdx.x
     
@@ -82,21 +79,37 @@ def im2col_cuda(
     kernel: Tensor,
     stride: int,
     padding: int
-):
+)-> Tensor:
+    """
+    cuda version of im2col, it is a preparation for conv2d
+
+    Args:
+        input (Tensor): input tensor
+        kernel (Tensor): kernel tensor
+        stride (int): stride of conv2d
+        padding (int): padding of conv2d
+
+    Returns:
+        Tensor: input col tensor on cuda
+    """    
+    # Some shapes
     b, c, h, w = input.shape
     out_c, in_c, kh, kw = kernel.shape
-    tensor_data = input._tensor
-    storage = tensor_data._storage
     h_out = (h + 2 * padding - kh) // stride + 1
     w_out = (w + 2 * padding - kw) // stride + 1
     
+    # Find storage of input tensor and padding
+    tensor_data = input._tensor
+    storage = tensor_data._storage
     padded_input = storage.reshape(tensor_data.shape)
     padded_input = np.pad(padded_input, [(0,0), (0,0), (padding, padding), (padding, padding)], 'constant')
+    padded_input = cuda.to_device(padded_input)
     
+    # Malloc for out tensor
     total_elements = b * h_out * w_out * c * kh * kw
-    # out = cuda.device_array((total_elements,), dtype=np.float64)
-    out = np.zeros(total_elements, np.float64)
+    out = cuda.device_array((total_elements,), dtype=np.float64)
     
+    # The following is the launching process of cuda kernel
     # A grid. The each row is a batch, therefor every colunme represents a part of the matrix
     BLOCK_DIM = 32
     GRID_DIMX = b
@@ -130,10 +143,25 @@ def _cuda_tensor_conv2d(
     kernel: Tensor, 
     stride: int, 
     padding: int,
-):
+) -> Tensor:
+    """
+    The cuda version of tensor conv2d
+
+    Args:
+        input (Tensor): input tensor
+        kernel (Tensor): kernel of conv2d
+        stride (int): stide
+        padding (int): padding
+
+    Returns:
+        Tensor: result of conv2d
+    """    
+    # Some shapes
     batch, channels, h, w = input.shape
     out_channels, in_channels, kh, kw = kernel.shape
     assert channels == in_channels
+    
+    # The following performs conv2d
     input, h_out, w_out = im2col_cuda(input, kernel, stride, padding)
     # Reshape kernel to [c*kh*kw, out_channels]
     kernel = kernel.contiguous().view(out_channels, in_channels * kh * kw).permute(1, 0).contiguous()
@@ -146,7 +174,18 @@ def _cuda_kernel_grad(
     input_col: Tensor, 
     grad_output: Tensor, 
     kernel_shape: Tuple[int, int, int, int]
-):
+) -> Tensor:
+    """
+    The grad w.r.t. kernel of conv2d
+
+    Args:
+        input_col (Tensor): input after im2col
+        grad_output (Tensor): grad w.r.t. output of conv2d
+        kernel_shape (Tuple[int, int, int, int]): kernel shape
+
+    Returns:
+        Tensor: grad
+    """    
     out_c, in_c, kh, kw = kernel_shape
     # Shape inputcol [b, h_out*w_out, c*kh*kw]
     
