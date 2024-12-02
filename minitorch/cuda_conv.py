@@ -2,6 +2,7 @@ from typing import Tuple
 
 import numpy as np
 from numba import cuda
+import numba as nb
 
 from .tensor import Tensor
 from .tensor_data import (
@@ -20,7 +21,63 @@ from .autodiff import (
 )
 from .cuda_ops import tensor_matrix_multiply
 
-def im2col(
+@cuda.jit
+def im2col_cuda_kernel(
+    padded_input, 
+    out, 
+    b, c,
+    kh, kw,
+    h_out, w_out,
+    stride
+    ):
+    """
+    CUDA kernel for im2col operation
+    
+    Parameters:
+    - input_storage: Original input tensor storage
+    - padded_input: Padded input tensor 
+    - out: Output array to store flattened patches
+    - b, c, h, w: Input tensor dimensions
+    - kh, kw: Kernel height and width
+    - h_out, w_out: Output height and width
+    - stride: Convolution stride
+    - padding: Padding size
+    """    
+    # Thread and block indexing
+    batch_idx = cuda.blockIdx.x
+    
+    # Calculate global thread index
+    thread_idx = cuda.blockIdx.y * cuda.blockDim.x + cuda.threadIdx.x
+    
+    # Check if thread is within output dimensions
+    if batch_idx < b and thread_idx < (h_out * w_out):
+        # Calculate output height and width indices
+        curr_h = thread_idx // w_out
+        curr_w = thread_idx % w_out
+        
+        # Stride calculations
+        stride_ck = c * kh * kw
+        stride_b = h_out * w_out * stride_ck
+        
+        # Calculate starting output position of this patch
+        out_pos = (
+            batch_idx * stride_b + 
+            thread_idx * stride_ck
+        )
+        
+        # Extract patch
+        for ch in range(c):
+            for kh_idx in range(kh):
+                for kw_idx in range(kw):
+                    # Calculate input indices with stride and padding
+                    input_h = curr_h * stride + kh_idx
+                    input_w = curr_w * stride + kw_idx
+                    
+                    # Store flattened patch
+                    out[out_pos] = padded_input[batch_idx, ch, input_h, input_w]
+                    out_pos += 1
+
+def im2col_cuda(
     input: Tensor,
     kernel: Tensor,
     stride: int,
@@ -33,33 +90,38 @@ def im2col(
     h_out = (h + 2 * padding - kh) // stride + 1
     w_out = (w + 2 * padding - kw) // stride + 1
     
-    storage = storage.reshape(tensor_data.shape)
-    storage = np.pad(storage, [(0,0), (0,0), (padding, padding), (padding, padding)], 'constant')
+    padded_input = storage.reshape(tensor_data.shape)
+    padded_input = np.pad(padded_input, [(0,0), (0,0), (padding, padding), (padding, padding)], 'constant')
     
-    stride_b = h_out * w_out * c * kh * kw
-    stride_ck = c * kh * kw
-    out = np.zeros((b * stride_b))
-
-    for curr_batch in range(b):
-        idx = 0
-        for curr_h in range(h_out):
-            for curr_w in range(w_out):
-                patch = storage[
-                    curr_batch, 
-                    :, 
-                    curr_h*stride : curr_h*stride+kh,
-                    curr_w*stride : curr_w*stride+kw
-                    ]
-                
-                out_pos = (
-                    curr_batch * stride_b + 
-                    curr_h * (w_out * stride_ck) +
-                    curr_w * stride_ck
-                )
-                out[out_pos : out_pos + (c * kh * kw)] = patch.reshape(-1)
-                idx += 1
+    total_elements = b * h_out * w_out * c * kh * kw
+    # out = cuda.device_array((total_elements,), dtype=np.float64)
+    out = np.zeros(total_elements, np.float64)
     
-    out = TensorData(out, (b, h_out * w_out, c * kh * kw), (stride_b, stride_ck, 1))
+    # A grid. The each row is a batch, therefor every colunme represents a part of the matrix
+    BLOCK_DIM = 32
+    GRID_DIMX = b
+    GRID_DIMY = -(-(h_out * w_out) // BLOCK_DIM)
+    
+    im2col_cuda_kernel[
+        (GRID_DIMX, GRID_DIMY),
+        BLOCK_DIM
+    ](
+        padded_input,
+        out,
+        b,
+        c,
+        kh,
+        kw,
+        h_out,
+        w_out,
+        stride
+    )
+    
+    out = TensorData(
+        out, 
+        (b, h_out * w_out, c * kh * kw), 
+        (h_out * w_out * c * kh * kw, c * kh * kw, 1)
+        )
     return input._new(out), h_out, w_out
 
 
@@ -72,7 +134,7 @@ def _cuda_tensor_conv2d(
     batch, channels, h, w = input.shape
     out_channels, in_channels, kh, kw = kernel.shape
     assert channels == in_channels
-    input, h_out, w_out = im2col(input, kernel, stride, padding)
+    input, h_out, w_out = im2col_cuda(input, kernel, stride, padding)
     # Reshape kernel to [c*kh*kw, out_channels]
     kernel = kernel.contiguous().view(out_channels, in_channels * kh * kw).permute(1, 0).contiguous()
     output = input @ kernel
@@ -102,6 +164,7 @@ def _cuda_kernel_grad(
     
     grad_kernel = grad_kernel.view(out_c, in_c, kh, kw)
     return grad_kernel
+
 
 class CudaConv2dFun(Function):
     @staticmethod

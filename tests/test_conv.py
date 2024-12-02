@@ -76,30 +76,36 @@ def test_conv(input: Tensor, weight: Tensor) -> None:
     minitorch.grad_check(minitorch.CudaConv2dFun.apply, input, weight)
 
 
-@pytest.mark.task4_5
+@pytest.mark.task4_4
 @given(tensors(shape=(2, 1, 6, 6), backend=minitorch.TensorBackend(minitorch.CudaOps)), tensors(shape=(1, 1, 3, 3), backend=minitorch.TensorBackend(minitorch.CudaOps)))
 @settings(max_examples=10)
 def test_conv_batch(input: Tensor, weight: Tensor) -> None:
     minitorch.grad_check(minitorch.CudaConv2dFun.apply, input, weight)
 
 
-@pytest.mark.task4_6
+@pytest.mark.task4_4
 @given(tensors(shape=(2, 2, 6, 6), backend=minitorch.TensorBackend(minitorch.CudaOps)), tensors(shape=(3, 2, 3, 3), backend=minitorch.TensorBackend(minitorch.CudaOps)))
 @settings(max_examples=10)
 def test_conv_channel(input: Tensor, weight: Tensor) -> None:
     minitorch.grad_check(minitorch.CudaConv2dFun.apply, input, weight)
 
 
-# @pytest.mark.task_cuda_conv
-# def test_conv2() -> None:
-#     t = minitorch.tensor([[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]]).view(
-#         1, 1, 4, 4
-#     )
-#     t.requires_grad_(True)
+@pytest.mark.task4_5
+def test_conv2() -> None:
+    t = minitorch.tensor([[0, 1, 2, 3, 4, 5], 
+                          [0, 1, 2, 3, 4, 5],
+                          [0, 1, 2, 3, 4, 5],
+                          [0, 1, 2, 3, 4, 5],
+                          [0, 1, 2, 3, 4, 5],
+                          [0, 1, 2, 3, 4, 5]], backend=minitorch.TensorBackend(minitorch.CudaOps)).view(1, 1, 6, 6)
+    t.requires_grad_(True)
 
-#     t2 = minitorch.tensor([[1, 1], [1, 1]]).view(1, 1, 2, 2)
-#     t2.requires_grad_(True)
-#     out = minitorch.Conv2dFun.apply(t, t2)
-#     out.sum().backward()
+    t2 = minitorch.tensor([[1, 1, 1], 
+                           [1, 1, 1],
+                           [1, 1, 1]], backend=minitorch.TensorBackend(minitorch.CudaOps)).view(1, 1, 3, 3)
+    t2.requires_grad_(True)
+    out = minitorch.CudaConv2dFun.apply(t, t2)
+    print(out.shape)
+    out.sum().backward()
 
-#     minitorch.grad_check(minitorch.CudaConv2dFun.apply, t, t2)
+    minitorch.grad_check(minitorch.CudaConv2dFun.apply, t, t2)
