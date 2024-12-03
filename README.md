@@ -1,36 +1,60 @@
-# MiniTorch Module 4
+# My_MiniTorch
+
+This is fully implemented minitorch for learning the structure of modern ml training, inferencing framework
 
 <img src="https://minitorch.github.io/minitorch.svg" width="50%">
 
 * Docs: https://minitorch.github.io/
 
-* Overview: https://minitorch.github.io/module4.html
+For further info and usage of minitorch, please refer to the above link.
 
-This module requires `fast_ops.py`, `cuda_ops.py`, `scalar.py`, `tensor_functions.py`, `tensor_data.py`, `tensor_ops.py`, `operators.py`, `module.py`, and `autodiff.py` from Module 3.
+# minitorch: backbone of my_minitorch
+The diagram of classes
+<img src="diagrams/classes.svg">
+The diagram of packages
+<img src="diagrams/packages.svg">
 
+## Tensor
+Tensor is the basic datatype of ml framework.
 
-Additionally you will need to install and download the MNist library.
+### `minitorch::tensor` 
+The implementation of tensor class. The class contains a `backend`, which indicates the tensor is on cpu-mem or gpu-vmem, and which computational resource will this tensor use (i.e. cpu or gpu). Meanwhile, it also contains the implementation (coupled with `tensor_functions::Function`) of basic operation of tensors.
 
-(On Mac, this may require installing the `wget` command)
+BP methods in `minitorch::tensor::Tensor` is based on `minitorch::autodiff`
 
-```
-pip install python-mnist
-mnist_get_data.sh
-```
+### `minitorch::tensor_functions`
+The implementation of functions related to tensor. Mostly coupled with `minitorch::tensor_ops`, which is the protocal of tensor operators.
 
+### `minitorch::tensor_ops`
+This module defines `TensorOps` and `TensorBackend`. `TensorOps` is a protocal, we have several derived class, `SimpleOps`, `FastOps` and `CudaOps`.
 
-* Tests:
+`SimpleOps`: the naive implementation of `TensorOps`.
 
-```
-python run_tests.py
-```
+`FastOps`: the cpu multi-threads implementation of `SimpleOps`.
 
-This assignment requires the following files from the previous assignments. You can get these by running
+`CudaOps`: the cuda multi-threads implementation.
 
-```bash
-python sync_previous_module.py previous-module-dir current-module-dir
-```
+`XXXBackend`: the wrapper of `XXXOps`, implementing complex tensor functions by calling ops from `XXXOps`.
 
-The files that will be synced are:
+## Autodiff
 
-        minitorch/tensor_data.py minitorch/tensor_functions.py minitorch/tensor_ops.py minitorch/fast_ops.py minitorch/cuda_ops.py minitorch/operators.py minitorch/module.py minitorch/autodiff.py minitorch/module.py project/run_manual.py project/run_scalar.py project/run_tensor.py project/run_fast_tensor.py project/parallel_check.py tests/test_tensor_general.py
+### `autodiff::Variable`
+The protocal of variable classes in framkework. Basically refers to `Scalar` class and `Tensor` class.
+
+### `autodiff::Context`
+The class for recording the information through bp, basically for compute the grad w.r.t. current Variable
+
+### `autodiff::backpropagate`
+The function is for bp, first calling `topological_sort` to get the sorted list of Variable in the model, then find the grad of each Variable w.r.t. the model output
+
+## Module
+`minitorch::module` is the backbone of minitorch, just like pytorch. All models are combination of modules. The members in the module class contains `_module` and `_parameters`, which are sub-modules and parameters of this module.
+
+Furthermore, the `minitorch::module::Parameters` is a wrapper of Variables.
+
+## Efficiency
+The efficiency improvement is made by `numba`. For cpu-mem scenario, the improvement is made by parallism. For gpu-vmem scenario, is cuda multi-thread.
+
+The key improvement is `minitorch::cuda_ops::CudaOps`, where the cuda ops are implemented (like `CudaOps::matrix_multiply`). 
+
+As for convolutional network, the cuda-kernel of conv2d is implemented as well. We use `minitorch::cuda_conv::im2col_cuda` to "unfold" the input matrix that each col is the flatted scope of the kernel. Then we flatten the kernel as well to perform the matmul for calculating the conv2d.

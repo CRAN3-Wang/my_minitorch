@@ -105,18 +105,28 @@ def backpropagate(variable: Variable, deriv: Any) -> None:
 
     No return. Should write to its results to the derivative values of each leaf through `accumulate_derivative`.
     """
+    # Dict storing accumulated derivative of nodes
     derivatives_dict = {variable.unique_id: deriv}
     
+    # Top sort
     sorted_list = topological_sort(variable)
     
+    
     for curr_variable in sorted_list:
+        # skip processing variables that are considered as leaf nodes in the computation graph.
         if curr_variable.is_leaf():
             continue
+        
+        # calling the `chain_rule` method of the `curr_variable` object. Get the grad of child-nodes w.r.t. current node
         curr_derivatives = curr_variable.chain_rule(derivatives_dict[curr_variable.unique_id])
         
+        # Iter each nodes and its grad,  
         for this_variable, this_derivative in curr_derivatives:
+            
+            # If the curr node is leaf node, which implies we have reach the end of this chain, then use accumulate_derivative to get the grad w.r.t. network output
             if this_variable.is_leaf():
                 this_variable.accumulate_derivative(this_derivative)  
+            # If the curr node is not leaf, we then need to store/accum the grad computed from this chain.
             else:
                 if this_variable.unique_id not in derivatives_dict:
                     derivatives_dict[this_variable.unique_id] = this_derivative  
